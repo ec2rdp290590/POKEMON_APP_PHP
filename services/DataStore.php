@@ -1,9 +1,6 @@
 <?php
 /**
- * Clase DataStore
- * 
- * Esta clase reemplaza la funcionalidad de la base de datos
- * almacenando todos los datos en arreglos en memoria (sesión)
+ * Clase para almacenar datos en la sesión
  */
 class DataStore {
     private $likedPokemon = [];
@@ -11,96 +8,138 @@ class DataStore {
     private $comments = [];
     private $blogPosts = [];
     
+    /**
+     * Constructor
+     */
     public function __construct() {
-        // Inicializar con algunos datos de ejemplo para el blog
-        $this->blogPosts = [
-            [
-                'id' => 1,
-                'title' => 'Los 10 Pokémon más poderosos de la primera generación',
-                'content' => "La primera generación de Pokémon introdujo 151 criaturas únicas, pero algunas destacaron por su poder en combate.\n\nMewtwo, creado genéticamente a partir del ADN de Mew, es sin duda el más poderoso con estadísticas base impresionantes y un conjunto de movimientos versátil. Otros Pokémon notables incluyen Dragonite, Gyarados, Alakazam y Gengar.\n\nLa mayoría de estos Pokémon siguen siendo relevantes incluso en las generaciones actuales, demostrando el excelente diseño y balance que Game Freak logró desde el principio.",
-                'featured_pokemon_id' => 150,
-                'author' => 'Profesor Oak',
-                'created_at' => date('Y-m-d H:i:s', strtotime('-3 days'))
-            ],
-            [
-                'id' => 2,
-                'title' => 'Guía para evolucionar a Eevee: Todas las posibilidades',
-                'content' => "Eevee es uno de los Pokémon más versátiles cuando se trata de evolución. A diferencia de la mayoría de los Pokémon que tienen una o dos evoluciones, Eevee puede evolucionar en ocho formas diferentes.\n\nCada evolución requiere un método específico:\n- Vaporeon: Piedra Agua\n- Jolteon: Piedra Trueno\n- Flareon: Piedra Fuego\n- Espeon: Subir nivel con alta amistad durante el día\n- Umbreon: Subir nivel con alta amistad durante la noche\n- Leafeon: Subir nivel cerca de una roca musgo\n- Glaceon: Subir nivel cerca de una roca hielo\n- Sylveon: Conocer un movimiento de tipo Hada y tener alta amistad\n\nCada evolución tiene sus propias fortalezas y debilidades, lo que hace que Eevee sea un Pokémon extremadamente valioso para cualquier entrenador.",
-                'featured_pokemon_id' => 133,
-                'author' => 'Entrenadora Valeria',
-                'created_at' => date('Y-m-d H:i:s', strtotime('-1 week'))
-            ]
-        ];
+        // Inicializar las propiedades desde la sesión si existen
+        if (isset($_SESSION['liked_pokemon'])) {
+            $this->likedPokemon = $_SESSION['liked_pokemon'];
+        }
+        
+        if (isset($_SESSION['hidden_pokemon'])) {
+            $this->hiddenPokemon = $_SESSION['hidden_pokemon'];
+        }
+        
+        if (isset($_SESSION['comments'])) {
+            $this->comments = $_SESSION['comments'];
+        }
+        
+        if (isset($_SESSION['blog_posts'])) {
+            $this->blogPosts = $_SESSION['blog_posts'];
+        }
     }
     
-    // Métodos para "me gusta"
-    public function isPokemonLiked($pokemonId) {
-        return in_array($pokemonId, $this->likedPokemon);
+    /**
+     * Guardar los cambios en la sesión
+     */
+    private function saveToSession() {
+        $_SESSION['liked_pokemon'] = $this->likedPokemon;
+        $_SESSION['hidden_pokemon'] = $this->hiddenPokemon;
+        $_SESSION['comments'] = $this->comments;
+        $_SESSION['blog_posts'] = $this->blogPosts;
     }
     
-    public function toggleLike($pokemonId) {
-        if ($this->isPokemonLiked($pokemonId)) {
-            // Eliminar de los favoritos
-            $this->likedPokemon = array_diff($this->likedPokemon, [$pokemonId]);
-            return false;
-        } else {
-            // Agregar a favoritos
+    /**
+     * Añadir un Pokémon a favoritos
+     */
+    public function likePokemon($pokemonId) {
+        if (!in_array($pokemonId, $this->likedPokemon)) {
             $this->likedPokemon[] = $pokemonId;
-            return true;
+            $this->saveToSession();
         }
     }
     
-    public function getLikedPokemonIds() {
-        return $this->likedPokemon;
+    /**
+     * Quitar un Pokémon de favoritos
+     */
+    public function unlikePokemon($pokemonId) {
+        $key = array_search($pokemonId, $this->likedPokemon);
+        if ($key !== false) {
+            unset($this->likedPokemon[$key]);
+            $this->likedPokemon = array_values($this->likedPokemon); // Reindexar el array
+            $this->saveToSession();
+        }
     }
     
-    // Métodos para Pokémon ocultos
-    public function isPokemonHidden($pokemonId) {
-        return in_array($pokemonId, $this->hiddenPokemon);
-    }
-    
+    /**
+     * Ocultar un Pokémon
+     */
     public function hidePokemon($pokemonId) {
-        if (!$this->isPokemonHidden($pokemonId)) {
+        if (!in_array($pokemonId, $this->hiddenPokemon)) {
             $this->hiddenPokemon[] = $pokemonId;
-            return true;
+            $this->saveToSession();
         }
-        return false;
     }
     
-    public function getHiddenPokemonIds() {
-        return $this->hiddenPokemon;
-    }
-    
-    // Métodos para comentarios
-    public function getCommentsForPokemon($pokemonId) {
-        if (!isset($this->comments[$pokemonId])) {
-            return [];
+    /**
+     * Mostrar un Pokémon oculto
+     */
+    public function showPokemon($pokemonId) {
+        $key = array_search($pokemonId, $this->hiddenPokemon);
+        if ($key !== false) {
+            unset($this->hiddenPokemon[$key]);
+            $this->hiddenPokemon = array_values($this->hiddenPokemon); // Reindexar el array
+            $this->saveToSession();
         }
-        return $this->comments[$pokemonId];
     }
     
-    public function addComment($pokemonId, $comment, $username) {
+    /**
+     * Añadir un comentario
+     */
+    public function addComment($pokemonId, $comment) {
         if (!isset($this->comments[$pokemonId])) {
             $this->comments[$pokemonId] = [];
         }
         
         $this->comments[$pokemonId][] = [
-            'id' => count($this->comments[$pokemonId]) + 1,
-            'user_id' => session_id(),
-            'username' => $username,
-            'comment' => $comment,
-            'created_at' => date('Y-m-d H:i:s')
+            'text' => $comment,
+            'date' => date('Y-m-d H:i:s')
         ];
         
-        return true;
+        $this->saveToSession();
     }
     
-    // Métodos para artículos del blog
+    /**
+     * Obtener los comentarios de un Pokémon
+     */
+    public function getComments($pokemonId) {
+        return isset($this->comments[$pokemonId]) ? $this->comments[$pokemonId] : [];
+    }
+    
+    /**
+     * Obtener los Pokémon favoritos
+     */
+    public function getLikedPokemon() {
+        return $this->likedPokemon;
+    }
+    
+    /**
+     * Obtener los Pokémon ocultos
+     */
+    public function getHiddenPokemon() {
+        return $this->hiddenPokemon;
+    }
+    
+    /**
+     * Establecer los posts del blog
+     */
+    public function setBlogPosts($posts) {
+        $this->blogPosts = $posts;
+        $this->saveToSession();
+    }
+    
+    /**
+     * Obtener los posts del blog
+     */
     public function getBlogPosts() {
         return $this->blogPosts;
     }
     
-    public function getBlogPostById($id) {
+    /**
+     * Obtener un post del blog por ID
+     */
+    public function getBlogPost($id) {
         foreach ($this->blogPosts as $post) {
             if ($post['id'] == $id) {
                 return $post;
@@ -109,4 +148,5 @@ class DataStore {
         return null;
     }
 }
-?>
+
+
