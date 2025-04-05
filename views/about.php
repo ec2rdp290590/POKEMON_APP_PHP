@@ -1,5 +1,5 @@
 <?php
-// Establecer título de la página
+// Establece título de la página
 $pageTitle = 'Acerca de';
 ?>
 
