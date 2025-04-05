@@ -1,101 +1,149 @@
 <?php
-require_once 'models/Pokemon.php';
-
+/**
+ * Servicio para interactuar con la PokeAPI
+ */
 class PokemonService {
-    private $baseUrl;
+    private $baseUrl = POKEAPI_BASE_URL;
+    private $cacheTime = 3600; // 1 hora en segundos
     
-    public function __construct() {
-        $this->baseUrl = POKEAPI_BASE_URL;
-    }
-    
-    // Obtener lista de Pokémon con paginación
-    public function getPokemonList($offset = 0, $limit = 20) {
-        $url = "{$this->baseUrl}/pokemon?offset={$offset}&limit={$limit}";
-        $response = $this->makeApiRequest($url);
+    /**
+     * Obtener datos de la API con caché
+     */
+    private function fetchFromApi($endpoint) {
+        $cacheKey = md5($endpoint);
         
-        if (!$response) {
-            return [];
-        }
-        
-        $pokemonUrls = [];
-        foreach ($response['results'] as $pokemon) {
-            $pokemonUrls[] = $pokemon['url'];
-        }
-        
-        return $pokemonUrls;
-    }
-    
-    // Obtener detalles de un Pokémon por URL
-    public function getPokemonDetailsByUrl($url) {
-        $data = $this->makeApiRequest($url);
-        
-        if (!$data) {
-            return null;
-        }
-        
-        return new Pokemon($data);
-    }
-    
-    // Obtener detalles de un Pokémon por ID
-    public function getPokemonDetailsById($id) {
-        $url = "{$this->baseUrl}/pokemon/{$id}";
-        $data = $this->makeApiRequest($url);
-        
-        if (!$data) {
-            return null;
-        }
-        
-        return new Pokemon($data);
-    }
-    
-    // Buscar Pokémon por nombre
-    public function searchPokemonByName($name) {
-        $name = strtolower(trim($name));
-        if (empty($name)) {
-            return [];
-        }
-        
-        $url = "{$this->baseUrl}/pokemon?limit=100";
-        $response = $this->makeApiRequest($url);
-        
-        if (!$response || !isset($response['results'])) {
-            return [];
-        }
-        
-        $matchingPokemon = [];
-        foreach ($response['results'] as $pokemon) {
-            if (strpos($pokemon['name'], $name) !== false) {
-                $matchingPokemon[] = $pokemon['url'];
+        // Verificar si los datos están en caché
+        if (isset($_SESSION['api_cache'][$cacheKey])) {
+            $cache = $_SESSION['api_cache'][$cacheKey];
+            
+            // Verificar si la caché aún es válida
+            if ($cache['timestamp'] + $this->cacheTime > time()) {
+                return $cache['data'];
             }
         }
         
-        return $matchingPokemon;
-    }
-    
-    // Obtener especies de Pokémon por ID
-    public function getPokemonSpeciesById($id) {
-        $url = "{$this->baseUrl}/pokemon-species/{$id}";
-        return $this->makeApiRequest($url);
-    }
-    
-    // Realizar solicitud a la API
-    private function makeApiRequest($url) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        // Si no está en caché o expiró, hacer la petición
+        $url = $this->baseUrl . $endpoint;
+        $response = file_get_contents($url);
         
-        $response = curl_exec($ch);
-        
-        if (curl_errno($ch)) {
-            error_log('Error en la solicitud cURL: ' . curl_error($ch));
-            curl_close($ch);
+        if ($response === false) {
             return null;
         }
         
-        curl_close($ch);
+        $data = json_decode($response, true);
         
-        return json_decode($response, true);
+        // Guardar en caché
+        if (!isset($_SESSION['api_cache'])) {
+            $_SESSION['api_cache'] = [];
+        }
+        
+        $_SESSION['api_cache'][$cacheKey] = [
+            'data' => $data,
+            'timestamp' => time()
+        ];
+        
+        return $data;
+    }
+    
+    /**
+     * Obtener la lista de Pokémon paginada
+     */
+    public function getPokemonList($page = 1, $limit = 20) {
+        $offset = ($page - 1) * $limit;
+        $data = $this->fetchFromApi("/pokemon?offset={$offset}&limit={$limit}");
+        
+        if (!$data || !isset($data['results'])) {
+            return [];
+        }
+        
+        $pokemonList = [];
+        
+        foreach ($data['results'] as $pokemon) {
+            $pokemonData = $this->fetchFromApi(str_replace($this->baseUrl, '', $pokemon['url']));
+            
+            if ($pokemonData) {
+                $types = [];
+                foreach ($pokemonData['types'] as $type) {
+                    $types[] = ucfirst($type['type']['name']);
+                }
+                
+                $pokemonList[] = [
+                    'id' => $pokemonData['id'],
+                    'name' => $pokemonData['name'],
+                    'image' => $pokemonData['sprites']['other']['official-artwork']['front_default'],
+                    'types' => $types,
+                    'height' => $pokemonData['height'] / 10, // Convertir a metros
+                    'weight' => $pokemonData['weight'] / 10, // Convertir a kg
+                    'abilities' => array_map(function($ability) {
+                        return ucfirst($ability['ability']['name']);
+                    }, $pokemonData['abilities']),
+                    'stats' => array_reduce($pokemonData['stats'], function($carry, $stat) {
+                        $carry[str_replace('-', '_', $stat['stat']['name'])] = $stat['base_stat'];
+                        return $carry;
+                    }, [])
+                ];
+            }
+        }
+        
+        return $pokemonList;
+    }
+    
+    /**
+     * Obtener detalles de un Pokémon por ID
+     */
+    public function getPokemonById($id) {
+        $pokemonData = $this->fetchFromApi("/pokemon/{$id}");
+        
+        if (!$pokemonData) {
+            return null;
+        }
+        
+        $types = [];
+        foreach ($pokemonData['types'] as $type) {
+            $types[] = ucfirst($type['type']['name']);
+        }
+        
+        $speciesData = $this->fetchFromApi(str_replace($this->baseUrl, '', $pokemonData['species']['url']));
+        $description = '';
+        
+        if ($speciesData && isset($speciesData['flavor_text_entries'])) {
+            foreach ($speciesData['flavor_text_entries'] as $entry) {
+                if ($entry['language']['name'] === 'es') {
+                    $description = $entry['flavor_text'];
+                    break;
+                }
+            }
+        }
+        
+        return [
+            'id' => $pokemonData['id'],
+            'name' => $pokemonData['name'],
+            'image' => $pokemonData['sprites']['other']['official-artwork']['front_default'],
+            'types' => $types,
+            'height' => $pokemonData['height'] / 10, // Convertir a metros
+            'weight' => $pokemonData['weight'] / 10, // Convertir a kg
+            'abilities' => array_map(function($ability) {
+                return ucfirst($ability['ability']['name']);
+            }, $pokemonData['abilities']),
+            'stats' => array_reduce($pokemonData['stats'], function($carry, $stat) {
+                $carry[str_replace('-', '_', $stat['stat']['name'])] = $stat['base_stat'];
+                return $carry;
+            }, []),
+            'description' => $description
+        ];
+    }
+    
+    /**
+     * Obtener el total de Pokémon
+     */
+    public function getTotalPokemonCount() {
+        $data = $this->fetchFromApi("/pokemon-species");
+        
+        if (!$data || !isset($data['count'])) {
+            return 0;
+        }
+        
+        return $data['count'];
     }
 }
-?>
+
